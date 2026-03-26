@@ -141,7 +141,7 @@ def print_all_labels():
         print(f"  {label}")
 
 
-def detect_one(video_path, target_ids, processor, model, device):
+def detect_one(video_path, target_ids, processor, model, device, base_dir):
     """处理单个视频，出错时抛出异常由上层捕获"""
     import torch
 
@@ -195,7 +195,9 @@ def detect_one(video_path, target_ids, processor, model, device):
     tmp_dir = os.path.join(output_base, "_tmp")
     all_clips = export_clips(video_path, all_segments, tmp_dir, "clip")
 
-    output_file = os.path.join(os.path.dirname(video_path), f"{video_name}_output.mp4")
+    output_dir = os.path.join(base_dir, "output")
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, f"{video_name}_output.mp4")
     merge_clips(all_clips, output_file)
 
     # 清理临时目录
@@ -250,7 +252,7 @@ def detect(input_path, targets):
     for i, video_path in enumerate(videos):
         print(f"\n[{i+1}/{len(videos)}] {os.path.basename(video_path)}")
         try:
-            detect_one(video_path, target_ids, processor, model, device)
+            detect_one(video_path, target_ids, processor, model, device, base_dir)
             dst = os.path.join(success_dir, os.path.basename(video_path))
             os.rename(video_path, dst)
             print(f"  → 移动至 success/")
