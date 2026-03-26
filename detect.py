@@ -70,13 +70,17 @@ def get_video_duration(video_path):
         return float(c.duration) / 1_000_000
 
 
-def get_frames(video_path, start_sec, n=16):
+def get_frames(video_path, start_sec, n=16, max_attempts=2000):
     import av
     frames = []
+    attempts = 0
     with av.open(video_path) as c:
         s = c.streams.video[0]
         c.seek(int(start_sec * 1_000_000))
         for frame in c.decode(s):
+            attempts += 1
+            if attempts > max_attempts:
+                raise RuntimeError(f"读帧超限（可能文件损坏），位置 {start_sec}s")
             if float(frame.pts * s.time_base) >= start_sec:
                 frames.append(frame.to_ndarray(format="rgb24"))
             if len(frames) >= n:
