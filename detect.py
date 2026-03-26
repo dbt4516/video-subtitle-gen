@@ -52,12 +52,16 @@ def load_model():
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv", ".m4v", ".webm"}
 
 
+SKIP_DIRS = {"success", "fail", "output"}
+
+
 def collect_videos(path):
     """返回路径下所有视频文件列表（单文件直接返回，目录则递归收集）"""
     if os.path.isfile(path):
         return [path]
     videos = []
-    for root, _, files in os.walk(path):
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for f in sorted(files):
             if os.path.splitext(f)[1].lower() in VIDEO_EXTENSIONS:
                 videos.append(os.path.join(root, f))
