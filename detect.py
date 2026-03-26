@@ -179,19 +179,30 @@ def detect_one(video_path, target_ids, processor, model, device):
         t += STRIDE
         step += 1
 
+    # 收集所有命中时间点（合并所有动作），按时间排序去重
+    all_hits = sorted(set(t for ht in hits.values() for t in ht))
+
     print(f"\n\n── 检测结果 ──")
     for label, ht in hits.items():
-        print(f"\n【{label}】命中 {len(ht)} 个时间点")
-        segments = make_segments(ht, duration)
-        if not segments:
-            print("  （无有效片段）")
-            continue
-        slug = label.replace(" ", "_").replace("(", "").replace(")", "")
-        clips = export_clips(video_path, segments, output_base, slug)
-        merged = os.path.join(output_base, f"{slug}_merged.mp4")
-        merge_clips(clips, merged)
+        print(f"【{label}】命中 {len(ht)} 个时间点")
 
-    print(f"\n所有片段保存至: {output_base}/")
+    all_segments = make_segments(all_hits, duration)
+    if not all_segments:
+        print("\n未检测到目标片段")
+        return
+
+    print(f"\n共 {len(all_segments)} 个片段（所有动作合并）:")
+    tmp_dir = os.path.join(output_base, "_tmp")
+    all_clips = export_clips(video_path, all_segments, tmp_dir, "clip")
+
+    output_file = os.path.join(os.path.dirname(video_path), f"{video_name}_output.mp4")
+    merge_clips(all_clips, output_file)
+
+    # 清理临时片段
+    import shutil
+    shutil.rmtree(tmp_dir)
+
+    print(f"输出文件: {output_file}")
 
 
 def detect(input_path, targets):
