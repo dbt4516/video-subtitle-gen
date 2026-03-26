@@ -18,6 +18,9 @@ import subprocess
 import warnings
 import numpy as np
 
+# 强制实时输出，不缓冲
+sys.stdout.reconfigure(line_buffering=True)
+
 warnings.filterwarnings("ignore")
 
 
