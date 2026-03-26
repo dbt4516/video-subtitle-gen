@@ -198,9 +198,9 @@ def detect_one(video_path, target_ids, processor, model, device):
     output_file = os.path.join(os.path.dirname(video_path), f"{video_name}_output.mp4")
     merge_clips(all_clips, output_file)
 
-    # 清理临时片段
+    # 清理临时目录
     import shutil
-    shutil.rmtree(tmp_dir)
+    shutil.rmtree(output_base)
 
     print(f"输出文件: {output_file}")
 
