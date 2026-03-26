@@ -6,8 +6,7 @@ VideoMAE 视频动作检测 + 片段剪辑工具
     python3 detect.py <视频路径或目录> <动作1> [动作2] [动作3] ...
 
 示例:
-    python3 detect.py video.mp4 "eating food" "drinking"
-    python3 detect.py /path/to/videos/ "massaging back" "yoga"
+    python3 detect.py video.mp4 "eating food" "drinking" 
 
 可用动作列表:
     python3 detect.py --list
@@ -229,19 +228,32 @@ def detect(input_path, targets):
 
     print(f"共找到 {len(videos)} 个视频\n{'─' * 50}")
 
+    # 以 input_path 所在目录（单文件）或 input_path 本身（目录）作为基准
+    base_dir = input_path if os.path.isdir(input_path) else os.path.dirname(input_path)
+    success_dir = os.path.join(base_dir, "success")
+    fail_dir = os.path.join(base_dir, "fail")
+    os.makedirs(success_dir, exist_ok=True)
+    os.makedirs(fail_dir, exist_ok=True)
+
     skipped = []
     for i, video_path in enumerate(videos):
         print(f"\n[{i+1}/{len(videos)}] {os.path.basename(video_path)}")
         try:
             detect_one(video_path, target_ids, processor, model, device)
+            dst = os.path.join(success_dir, os.path.basename(video_path))
+            os.rename(video_path, dst)
+            print(f"  → 移动至 success/")
         except Exception as e:
             print(f"  ⚠ 跳过（{e}）")
             skipped.append((video_path, str(e)))
+            dst = os.path.join(fail_dir, os.path.basename(video_path))
+            os.rename(video_path, dst)
+            print(f"  → 移动至 fail/")
 
     print(f"\n{'─' * 50}")
     print(f"完成: {len(videos) - len(skipped)}/{len(videos)} 个视频处理成功")
     if skipped:
-        print("跳过的文件:")
+        print("失败的文件:")
         for path, reason in skipped:
             print(f"  {os.path.basename(path)}: {reason}")
 
