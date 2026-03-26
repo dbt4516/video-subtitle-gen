@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 使用 whisper.cpp (whisper-cli) 从视频中提取音频并生成 SRT 字幕文件。
+支持单个文件或批量处理整个目录。
 
 依赖：
   - ffmpeg: brew install ffmpeg
@@ -10,12 +11,14 @@
 
 用法：
   python3 transcribe.py video.mp4
+  python3 transcribe.py /path/to/videos/
   python3 transcribe.py video.mp4 -m ~/models/ggml-large-v3-turbo.bin
-  python3 transcribe.py video.mp4 --lang zh --no-vad
+  python3 transcribe.py /path/to/videos/ --lang zh --no-vad
   python3 transcribe.py video.mp4 --merge-gap 3.0 --merge-max 45
 """
 
 import argparse
+import glob
 import os
 import shutil
 import subprocess
@@ -25,6 +28,7 @@ import time
 
 DEFAULT_MODEL = "ggml-large-v3-turbo.bin"
 DEFAULT_VAD_MODEL = "ggml-silero-v5.1.2.bin"
+VIDEO_EXTENSIONS = {".mp4", ".ts"}
 MODEL_SEARCH_PATHS = [
     ".",
     os.path.expanduser("~/Downloads/whisper-models"),
@@ -55,9 +59,23 @@ def find_whisper_cli():
     return None
 
 
+def find_videos(input_path):
+    """根据输入路径返回视频文件列表。支持单文件、目录。"""
+    input_path = os.path.abspath(input_path)
+    if os.path.isfile(input_path):
+        return [input_path]
+    if os.path.isdir(input_path):
+        videos = []
+        for ext in VIDEO_EXTENSIONS:
+            videos.extend(glob.glob(os.path.join(input_path, f"*{ext}")))
+            videos.extend(glob.glob(os.path.join(input_path, f"*{ext.upper()}")))
+        return sorted(set(videos))
+    print(f"路径不存在: {input_path}", file=sys.stderr)
+    sys.exit(1)
+
+
 def extract_audio(video_path, audio_path):
     """用 ffmpeg 从视频中提取音频，转为 whisper 要求的 16kHz mono WAV"""
-    print(f"[1/3] 提取音频: {video_path}")
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
@@ -68,14 +86,11 @@ def extract_audio(video_path, audio_path):
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"ffmpeg 错误:\n{result.stderr}", file=sys.stderr)
-        sys.exit(1)
-    print(f"   音频已保存: {audio_path}")
+        raise RuntimeError(f"ffmpeg 错误:\n{result.stderr}")
 
 
 def transcribe(audio_path, whisper_cli, model_path, vad_model_path, language, threads, output_dir, output_name):
     """用 whisper-cli 进行语音识别并输出 SRT 字幕"""
-    print("[2/3] 语音识别中...")
     output_prefix = os.path.join(output_dir, output_name)
     cmd = [
         whisper_cli,
@@ -91,13 +106,11 @@ def transcribe(audio_path, whisper_cli, model_path, vad_model_path, language, th
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"whisper-cli 错误:\n{result.stderr}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"whisper-cli 错误:\n{result.stderr}")
 
     srt_file = output_prefix + ".srt"
     if not os.path.exists(srt_file):
-        print(f"未找到输出文件，whisper-cli 输出:\n{result.stdout}\n{result.stderr}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"未找到输出文件，whisper-cli 输出:\n{result.stdout}\n{result.stderr}")
 
     return srt_file
 
@@ -168,9 +181,51 @@ def write_srt(entries, output_path):
             f.write(f"{text}\n\n")
 
 
+def process_one(video_path, whisper_cli, model_path, vad_model_path, args):
+    """处理单个视频文件，返回 (srt_path, elapsed_sec) 或 None（失败时）"""
+    output_dir = args.output_dir or os.path.dirname(video_path)
+    output_name = os.path.splitext(os.path.basename(video_path))[0]
+    srt_target = os.path.join(output_dir, output_name + ".srt")
+
+    if args.skip_existing and os.path.exists(srt_target):
+        print(f"   跳过（已有字幕）: {srt_target}")
+        return None
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        audio_path = tmp.name
+
+    try:
+        print(f"  [1/3] 提取音频...")
+        extract_audio(video_path, audio_path)
+
+        print(f"  [2/3] 语音识别中...")
+        t0 = time.time()
+        srt_file = transcribe(audio_path, whisper_cli, model_path, vad_model_path, args.lang, args.threads, output_dir, output_name)
+        elapsed = time.time() - t0
+        print(f"         识别耗时: {elapsed:.1f} 秒")
+
+        if not args.no_merge:
+            print(f"  [3/3] 合并字幕（间隔 <{args.merge_gap}s, 单条最长 {args.merge_max}s）...")
+            entries = parse_srt(srt_file)
+            before_count = len(entries)
+            entries = merge_entries(entries, args.merge_gap, args.merge_max)
+            after_count = len(entries)
+            write_srt(entries, srt_file)
+            print(f"         {before_count} 条 → {after_count} 条")
+
+        print(f"  字幕: {srt_file}")
+        return srt_file, elapsed
+    except RuntimeError as e:
+        print(f"  错误: {e}", file=sys.stderr)
+        return None
+    finally:
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+
+
 def main():
-    parser = argparse.ArgumentParser(description="视频转 SRT 字幕（基于 whisper.cpp）")
-    parser.add_argument("video", help="输入视频文件路径")
+    parser = argparse.ArgumentParser(description="视频转 SRT 字幕（基于 whisper.cpp），支持单文件或批量目录")
+    parser.add_argument("input", help="视频文件或包含视频的目录")
     parser.add_argument("-m", "--model", default=DEFAULT_MODEL, help=f"whisper 模型文件路径或名称 (默认: {DEFAULT_MODEL})")
     parser.add_argument("-l", "--lang", default="auto", help="语言代码，如 zh/en/ja/auto (默认: auto)")
     parser.add_argument("-t", "--threads", type=int, default=8, help="线程数 (默认: 8)")
@@ -180,12 +235,13 @@ def main():
     parser.add_argument("--no-merge", action="store_true", help="禁用字幕合并")
     parser.add_argument("--merge-gap", type=float, default=2.0, help="合并间隔阈值，秒 (默认: 2.0)")
     parser.add_argument("--merge-max", type=float, default=30.0, help="合并后单条最大时长，秒 (默认: 30.0)")
+    parser.add_argument("--skip-existing", action="store_true", help="跳过已有 SRT 字幕的视频")
     args = parser.parse_args()
 
-    # 检查视频文件
-    video_path = os.path.abspath(args.video)
-    if not os.path.exists(video_path):
-        print(f"视频文件不存在: {video_path}", file=sys.stderr)
+    # 查找视频文件
+    videos = find_videos(args.input)
+    if not videos:
+        print(f"未找到视频文件（支持: {', '.join(VIDEO_EXTENSIONS)}）", file=sys.stderr)
         sys.exit(1)
 
     # 查找 whisper-cli
@@ -209,46 +265,34 @@ def main():
         if not vad_model_path:
             print(f"警告: 未找到 VAD 模型 {args.vad_model}，将禁用 VAD", file=sys.stderr)
 
-    # 输出路径
-    output_dir = args.output_dir or os.path.dirname(video_path)
-    output_name = os.path.splitext(os.path.basename(video_path))[0]
+    if args.output_dir:
+        os.makedirs(args.output_dir, exist_ok=True)
 
-    # 提取音频 → 转录 → 合并
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        audio_path = tmp.name
+    # 处理
+    total = len(videos)
+    success = 0
+    skipped = 0
+    failed = 0
+    total_elapsed = 0.0
+    total_t0 = time.time()
 
-    try:
-        extract_audio(video_path, audio_path)
-
-        t0 = time.time()
-        srt_file = transcribe(audio_path, whisper_cli, model_path, vad_model_path, args.lang, args.threads, output_dir, output_name)
-        elapsed = time.time() - t0
-        print(f"   识别耗时: {elapsed:.1f} 秒")
-
-        if not args.no_merge:
-            print(f"[3/3] 合并字幕（间隔 <{args.merge_gap}s, 单条最长 {args.merge_max}s）...")
-            entries = parse_srt(srt_file)
-            before_count = len(entries)
-            entries = merge_entries(entries, args.merge_gap, args.merge_max)
-            after_count = len(entries)
-            write_srt(entries, srt_file)
-            print(f"   合并完成: {before_count} 条 → {after_count} 条")
+    for i, video_path in enumerate(videos, 1):
+        print(f"\n[{i}/{total}] {os.path.basename(video_path)}")
+        result = process_one(video_path, whisper_cli, model_path, vad_model_path, args)
+        if result is None:
+            if args.skip_existing:
+                skipped += 1
+            else:
+                failed += 1
         else:
-            entries = parse_srt(srt_file)
+            success += 1
+            total_elapsed += result[1]
 
-        # 预览
-        print("\n--- 字幕预览 ---")
-        for start, end, text in entries[:5]:
-            print(f"[{sec_to_srt_time(start)} → {sec_to_srt_time(end)}] {text}")
-        if len(entries) > 5:
-            print(f"... (共 {len(entries)} 条)")
-
-        print(f"\n字幕文件: {srt_file}")
-    finally:
-        if os.path.exists(audio_path):
-            os.remove(audio_path)
-
-    print("完成!")
+    # 汇总
+    wall_time = time.time() - total_t0
+    print(f"\n{'=' * 40}")
+    print(f"处理完成: {success} 成功, {skipped} 跳过, {failed} 失败 (共 {total} 个)")
+    print(f"识别总耗时: {total_elapsed:.1f} 秒, 总用时: {wall_time:.1f} 秒")
 
 
 if __name__ == "__main__":

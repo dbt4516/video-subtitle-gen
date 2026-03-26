@@ -33,8 +33,14 @@ curl -L -o ~/Downloads/whisper-models/ggml-silero-v5.1.2.bin \
 ## Usage
 
 ```bash
-# Basic usage (auto-detect language, VAD enabled)
+# Single file
 python3 transcribe.py video.mp4
+
+# Batch: process all .mp4 and .ts files in a directory
+python3 transcribe.py /path/to/videos/
+
+# Batch with skip (don't re-process files that already have .srt)
+python3 transcribe.py /path/to/videos/ --skip-existing
 
 # Specify language
 python3 transcribe.py video.mp4 --lang zh
@@ -52,7 +58,7 @@ python3 transcribe.py video.mp4 --merge-gap 3.0 --merge-max 45
 python3 transcribe.py video.mp4 --no-merge
 
 # Output to a different directory
-python3 transcribe.py video.mp4 -o ./subtitles/
+python3 transcribe.py /path/to/videos/ -o ./subtitles/
 ```
 
 ## Available Models
