@@ -3,10 +3,11 @@ VideoMAE 视频动作检测 + 片段剪辑工具
 本地离线运行，数据不离机
 
 用法:
-    python3 detect.py <视频路径> <动作1> [动作2] [动作3] ...
+    python3 detect.py <视频路径或目录> <动作1> [动作2] [动作3] ...
 
-示例: 
+示例:
     python3 detect.py video.mp4 "eating food" "drinking"
+    python3 detect.py /path/to/videos/ "massaging back" "yoga"
 
 可用动作列表:
     python3 detect.py --list
@@ -44,6 +45,21 @@ def load_model():
     model.eval()
     print("模型加载完成\n")
     return processor, model, device
+
+
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv", ".m4v", ".webm"}
+
+
+def collect_videos(path):
+    """返回路径下所有视频文件列表（单文件直接返回，目录则递归收集）"""
+    if os.path.isfile(path):
+        return [path]
+    videos = []
+    for root, _, files in os.walk(path):
+        for f in sorted(files):
+            if os.path.splitext(f)[1].lower() in VIDEO_EXTENSIONS:
+                videos.append(os.path.join(root, f))
+    return videos
 
 
 def get_video_duration(video_path):
@@ -126,38 +142,15 @@ def print_all_labels():
         print(f"  {label}")
 
 
-def detect(video_path, targets):
+def detect_one(video_path, target_ids, processor, model, device):
+    """处理单个视频，出错时抛出异常由上层捕获"""
     import torch
 
-    if not os.path.exists(video_path):
-        print(f"错误: 文件不存在 {video_path}")
-        sys.exit(1)
-
-    processor, model, device = load_model()
     duration = get_video_duration(video_path)
     video_name = os.path.splitext(os.path.basename(video_path))[0]
     output_base = os.path.join(os.path.dirname(video_path), f"{video_name}_clips")
 
-    # 验证 target 名称
-    all_labels = set(model.config.id2label.values())
-    target_ids = {}
-    for target in targets:
-        matches = [v for v in all_labels if target.lower() in v.lower()]
-        if not matches:
-            print(f"警告: 未找到动作 '{target}'，跳过")
-            continue
-        best = min(matches, key=len)  # 优先精确匹配
-        tid = [k for k, v in model.config.id2label.items() if v == best][0]
-        target_ids[best] = tid
-        if best != target:
-            print(f"'{target}' → 匹配到 '{best}'")
-
-    if not target_ids:
-        print("没有有效的目标动作，退出")
-        sys.exit(1)
-
     print(f"视频: {os.path.basename(video_path)}  时长: {duration:.0f}秒")
-    print(f"目标: {list(target_ids.keys())}")
     print(f"置信度阈值: {CONFIDENCE:.0%}  采样间隔: {STRIDE}s\n")
 
     hits = {label: [] for label in target_ids}
@@ -202,6 +195,57 @@ def detect(video_path, targets):
     print(f"\n所有片段保存至: {output_base}/")
 
 
+def detect(input_path, targets):
+    if not os.path.exists(input_path):
+        print(f"错误: 路径不存在 {input_path}")
+        sys.exit(1)
+
+    processor, model, device = load_model()
+
+    # 验证 target 名称（只做一次）
+    all_labels = set(model.config.id2label.values())
+    target_ids = {}
+    for target in targets:
+        matches = [v for v in all_labels if target.lower() in v.lower()]
+        if not matches:
+            print(f"警告: 未找到动作 '{target}'，跳过")
+            continue
+        best = min(matches, key=len)
+        tid = [k for k, v in model.config.id2label.items() if v == best][0]
+        target_ids[best] = tid
+        if best != target:
+            print(f"'{target}' → 匹配到 '{best}'")
+
+    if not target_ids:
+        print("没有有效的目标动作，退出")
+        sys.exit(1)
+
+    print(f"目标动作: {list(target_ids.keys())}\n")
+
+    videos = collect_videos(input_path)
+    if not videos:
+        print(f"未找到视频文件: {input_path}")
+        sys.exit(1)
+
+    print(f"共找到 {len(videos)} 个视频\n{'─' * 50}")
+
+    skipped = []
+    for i, video_path in enumerate(videos):
+        print(f"\n[{i+1}/{len(videos)}] {os.path.basename(video_path)}")
+        try:
+            detect_one(video_path, target_ids, processor, model, device)
+        except Exception as e:
+            print(f"  ⚠ 跳过（{e}）")
+            skipped.append((video_path, str(e)))
+
+    print(f"\n{'─' * 50}")
+    print(f"完成: {len(videos) - len(skipped)}/{len(videos)} 个视频处理成功")
+    if skipped:
+        print("跳过的文件:")
+        for path, reason in skipped:
+            print(f"  {os.path.basename(path)}: {reason}")
+
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__)
@@ -216,9 +260,9 @@ def main():
         print("查看所有动作: python3 detect.py --list")
         sys.exit(1)
 
-    video_path = sys.argv[1]
+    input_path = sys.argv[1]
     targets = sys.argv[2:]
-    detect(video_path, targets)
+    detect(input_path, targets)
 
 
 if __name__ == "__main__":
