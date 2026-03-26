@@ -73,6 +73,27 @@ python3 transcribe.py /path/to/videos/ -o ./subtitles/
 | `ggml-large-v3.bin` | 3.1 GB | Slowest | Best |
 
 
+## Subtitle Translation
+
+Translate SRT files between 200+ languages using [NLLB-200](https://huggingface.co/facebook/nllb-200-distilled-600M), fully offline.
+
+```bash
+# Setup (one-time)
+python3 -m venv .venv && source .venv/bin/activate
+pip install transformers sentencepiece torch
+
+# Translate Japanese to Chinese
+python3 translate.py subtitle.srt --from ja --to zh
+
+# Batch translate a directory
+python3 translate.py /path/to/srts/ --from en --to zh
+
+# Skip already translated files by checking for .zh.srt
+python3 translate.py /path/to/srts/ --from ja --to zh
+```
+
+Supported languages: zh, ja, en, ko, fr, de, es, ru, pt, ar, th, vi, id (and 200+ more via NLLB code).
+
 ## License
 
 MIT
