@@ -72,7 +72,6 @@ python3 transcribe.py /path/to/videos/ -o ./subtitles/
 | `ggml-large-v3-turbo.bin` | 1.6 GB | Medium | Great |
 | `ggml-large-v3.bin` | 3.1 GB | Slowest | Best |
 
-Models with `.en` suffix (e.g. `ggml-medium.en.bin`) are English-only but more accurate for English.
 
 ## License
 
