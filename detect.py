@@ -209,7 +209,7 @@ def detect_one(video_path, target_ids, processor, model, device, base_dir):
 
     output_dir = os.path.join(base_dir, "output")
     os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, f"{video_name}_output.mp4")
+    output_file = os.path.join(output_dir, f"{video_name}.mp4")
     merge_clips(all_clips, output_file)
 
     # 清理临时目录
