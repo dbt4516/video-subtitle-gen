@@ -109,13 +109,18 @@ def make_segments(hit_times, duration):
 
 def export_clips(video_path, segments, output_dir, slug):
     os.makedirs(output_dir, exist_ok=True)
+    # wmv 等格式不支持 stream copy 到 mp4，需要转码
+    ext = os.path.splitext(video_path)[1].lower()
+    codec_args = ["-c", "copy"] if ext == ".mp4" else ["-c:v", "libx264", "-c:a", "aac", "-preset", "fast"]
     clip_paths = []
     for i, (s, e) in enumerate(segments):
         out = os.path.join(output_dir, f"{slug}_clip{i+1:02d}_{s:.0f}s-{e:.0f}s.mp4")
-        subprocess.run(
-            ["ffmpeg", "-y", "-ss", str(s), "-to", str(e), "-i", video_path, "-c", "copy", out],
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-ss", str(s), "-to", str(e), "-i", video_path] + codec_args + [out],
             capture_output=True,
         )
+        if result.returncode != 0 or os.path.getsize(out) == 0:
+            raise RuntimeError(f"ffmpeg 切片失败: {result.stderr.decode()[-200:]}")
         size_kb = os.path.getsize(out) // 1024
         print(f"    片段{i+1}: {s:.0f}s ~ {e:.0f}s ({e-s:.0f}秒)  {size_kb}KB")
         clip_paths.append(out)
