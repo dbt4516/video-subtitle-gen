@@ -120,7 +120,8 @@ def export_clips(video_path, segments, output_dir, slug):
             capture_output=True,
         )
         if result.returncode != 0 or os.path.getsize(out) == 0:
-            raise RuntimeError(f"ffmpeg 切片失败: {result.stderr.decode()[-200:]}")
+            print(f"    片段{i+1}: {s:.0f}s ~ {e:.0f}s 切片失败，跳过")
+            continue
         size_kb = os.path.getsize(out) // 1024
         print(f"    片段{i+1}: {s:.0f}s ~ {e:.0f}s ({e-s:.0f}秒)  {size_kb}KB")
         clip_paths.append(out)
@@ -206,6 +207,8 @@ def detect_one(video_path, target_ids, processor, model, device, base_dir):
     print(f"\n共 {len(all_segments)} 个片段（所有动作合并）:")
     tmp_dir = os.path.join(output_base, "_tmp")
     all_clips = export_clips(video_path, all_segments, tmp_dir, "clip")
+    if not all_clips:
+        raise RuntimeError("所有片段切片均失败")
 
     output_dir = os.path.join(base_dir, "output")
     os.makedirs(output_dir, exist_ok=True)
