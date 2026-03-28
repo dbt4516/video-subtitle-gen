@@ -119,7 +119,7 @@ def export_clips(video_path, segments, output_dir, slug):
             ["ffmpeg", "-y", "-ss", str(s), "-to", str(e), "-i", video_path] + codec_args + [out],
             capture_output=True,
         )
-        if result.returncode != 0 or os.path.getsize(out) == 0:
+        if result.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
             print(f"    片段{i+1}: {s:.0f}s ~ {e:.0f}s 切片失败，跳过")
             continue
         size_kb = os.path.getsize(out) // 1024
@@ -268,15 +268,17 @@ def detect(input_path, targets):
         print(f"\n[{i+1}/{len(videos)}] {os.path.basename(video_path)}")
         try:
             detect_one(video_path, target_ids, processor, model, device, base_dir)
-            dst = os.path.join(success_dir, os.path.basename(video_path))
-            os.rename(video_path, dst)
-            print(f"  → 移动至 success/")
+            if os.path.exists(video_path):
+                dst = os.path.join(success_dir, os.path.basename(video_path))
+                os.rename(video_path, dst)
+                print(f"  → 移动至 success/")
         except Exception as e:
             print(f"  ⚠ 跳过（{e}）")
             skipped.append((video_path, str(e)))
-            dst = os.path.join(fail_dir, os.path.basename(video_path))
-            os.rename(video_path, dst)
-            print(f"  → 移动至 fail/")
+            if os.path.exists(video_path):
+                dst = os.path.join(fail_dir, os.path.basename(video_path))
+                os.rename(video_path, dst)
+                print(f"  → 移动至 fail/")
 
     print(f"\n{'─' * 50}")
     print(f"完成: {len(videos) - len(skipped)}/{len(videos)} 个视频处理成功")
