@@ -49,7 +49,7 @@ def load_model():
     return processor, model, device
 
 
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv", ".m4v", ".webm"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv", ".m4v", ".webm", ".ts"}
 
 
 def collect_videos(path):
@@ -109,9 +109,9 @@ def make_segments(hit_times, duration):
 
 def export_clips(video_path, segments, output_dir, slug):
     os.makedirs(output_dir, exist_ok=True)
-    # wmv 等格式不支持 stream copy 到 mp4，需要转码
+    # 只有 mp4/mov/m4v 支持 stream copy，其他格式需要转码
     ext = os.path.splitext(video_path)[1].lower()
-    codec_args = ["-c", "copy"] if ext == ".mp4" else ["-c:v", "libx264", "-c:a", "aac", "-preset", "fast"]
+    codec_args = ["-c", "copy"] if ext in {".mp4", ".mov", ".m4v"} else ["-c:v", "libx264", "-c:a", "aac", "-preset", "fast"]
     clip_paths = []
     for i, (s, e) in enumerate(segments):
         out = os.path.join(output_dir, f"{slug}_clip{i+1:02d}_{s:.0f}s-{e:.0f}s.mp4")
