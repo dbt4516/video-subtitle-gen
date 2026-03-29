@@ -187,7 +187,7 @@ def detect_one(video_path, target_ids, processor, model, device, base_dir):
 
             if found:
                 print(f"  [{t:6.0f}s] {' | '.join(found)}")
-            else:
+            elif step % 50 == 0:
                 print(f"  [{t:6.0f}s] {step}/{total}", end="\r")
         t += STRIDE
         step += 1
